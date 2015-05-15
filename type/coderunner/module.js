@@ -129,7 +129,7 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
 
         editor.setOptions({
             enableBasicAutocompletion: true,
-            newLineMode: "unix",
+            newLineMode: "unix"
         });
         
         textarea.hide();
@@ -189,7 +189,42 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
             M.qtype_coderunner.active_editors[field] = create_editor_element(textarea, mode);
         }
     }
-}
+};
+
+M.qtype_coderunner.init_basic_yaml_ace = function (Y, field) {
+    var HANDLE_SIZE = 5,
+        MIN_WIDTH = 300,
+        MIN_HEIGHT = 100;
+
+    var textarea = Y.one('[id="' + field + '"]'),
+        h = parseInt(textarea.getComputedStyle("height")),
+        w = parseInt(textarea.getComputedStyle("width")),
+        wrapper_node = Y.Node.create('<div></div>'),
+        edit_node = Y.Node.create("<div></div>");
+
+    wrapper_node.setStyles({
+        resize: 'both',
+        overflow: 'hidden',
+        height: h,
+        width: w,
+        minWidth: MIN_WIDTH,  // GRRR YUI needs camelCase not hyphens
+        minHeight: MIN_HEIGHT
+    });
+
+
+    edit_node.setStyles({
+        resize: 'none', // Chrome wrongly inherits this
+        height: h - HANDLE_SIZE,
+        width: w - HANDLE_SIZE
+    });
+
+    textarea.insert(wrapper_node, "after");
+    wrapper_node.insert(edit_node, "replace");
+
+    var editor = ace.edit(edit_node.getDOMNode());
+    editor.setTheme("ace/theme/monokai");
+    editor.getSession().setMode("ace/mode/yaml");
+};
 
 
 // Function to initialise all code-input text-areas in a page.

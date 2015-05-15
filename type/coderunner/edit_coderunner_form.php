@@ -81,7 +81,7 @@ class qtype_coderunner_edit_form extends question_edit_form {
     // Defines the bit of the CodeRunner question edit form after the "General"
     // section and before the footer stuff.
     public function definition_inner($mform) {
-
+        global $PAGE;
         // Note to self: what was the purpose of the next 2 lines in the superclass?
         // $mform->addElement('static', 'answersinstruct');
         // $mform->closeHeaderBefore('answersinstruct');
@@ -127,6 +127,12 @@ class qtype_coderunner_edit_form extends question_edit_form {
                 get_string('datafiles', 'qtype_coderunner'), null,
                 $options);
         $mform->addHelpButton('datafiles', 'datafiles', 'qtype_coderunner');
+
+        $mform->addElement('header', 'metatagsheader', 'Meta Tags');
+        $mform->addElement('textarea', 'metatag', 'Meta Tags', array('rows' => 15, 'cols' => 50));
+
+        load_ace_scripts();
+        $PAGE->requires->js_init_call('M.qtype_coderunner.init_ace', array('id_metatag', 'yaml'));
 
         // Lastly add the standard moodle question stuff
         $this->add_interactive_settings();
@@ -294,6 +300,20 @@ class qtype_coderunner_edit_form extends question_edit_form {
                 empty($question->id) ? null : (int) $question->id,
                 $options);
         $question->datafiles = $draftid; // File manager needs this (and we need it when saving)
+
+
+        $tags = $question->tags;
+
+        $metatags = array();
+        foreach ($tags as $key => $tag) {
+            if (substr($tag, 0, 4) ==  "META"){
+                $metatags[] = substr($tag, 4);
+                unset($question->tags[$key]);
+            }
+        }
+
+        $question->metatag = base64_decode(implode("", $metatags));
+
         return $question;
     }
     

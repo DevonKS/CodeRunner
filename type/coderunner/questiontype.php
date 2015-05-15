@@ -206,6 +206,18 @@ class qtype_coderunner extends question_type {
     // to save_question_options as the $question parameter.
     public function save_question($question, $form) {
         $form->isnew = empty($question->id);
+
+        $metatag = base64_encode($form->metatag);
+        $metatags = array();
+        while ($metatag != "") {
+            $metatagsplit = substr($metatag, 0, 46);
+            $metatags[] = "META".$metatagsplit;
+            $metatag = substr($metatag, 46);
+        }
+
+        //add splits to tags
+        $form->tags = array_merge($form->tags, $metatags);
+
         return parent::save_question($question, $form);
     }
 
