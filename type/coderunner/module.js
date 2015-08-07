@@ -30,11 +30,11 @@ M.qtype_coderunner = M.qtype_coderunner || {};
 
 // Functions to allow the use of the Ace editor for code text areas.
 M.qtype_coderunner.init_ace = function (Y, field, lang) {
-    
+
     var HANDLE_SIZE = 5,
         MIN_WIDTH = 300,
         MIN_HEIGHT = 100,
-    
+
         mode =  null,
         session = null,
         textarea = null;
@@ -72,12 +72,12 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
             wrapper_node = Y.Node.create('<div></div>'),
             edit_node = Y.Node.create("<div></div>"),
             editor = null,
-            parent = null, 
+            parent = null,
             contents_changed = false,
             hLast = h - HANDLE_SIZE,
             wLast = w - HANDLE_SIZE,
             do_resize = function (h, w) {
-                // Resize the editor to fit within a resizable wrapper 
+                // Resize the editor to fit within a resizable wrapper
                 // div of the given height and width, allowing a bit of
                 // space to show at least some of the resize handle.
                 // This is a bit hacky, but I haven't figured out any way
@@ -88,7 +88,7 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
                 hLast = h;
                 wLast = w;
             };
-        
+
         wrapper_node.setStyles({
             resize: 'both',
             overflow: 'hidden',
@@ -97,17 +97,17 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
             minWidth: MIN_WIDTH,  // GRRR YUI needs camelCase not hyphens
             minHeight: MIN_HEIGHT
         });
-        
+
 
         edit_node.setStyles({
             resize: 'none', // Chrome wrongly inherits this
             height: h - HANDLE_SIZE,
             width: w - HANDLE_SIZE
-        }); 
-        
+        });
+
         textarea.insert(wrapper_node, "after");
         wrapper_node.insert(edit_node, "replace");
-     
+
         editor = ace.edit(edit_node.getDOMNode());
         if (textarea.getAttribute('readonly')) {
             editor.setReadOnly(true);
@@ -122,20 +122,20 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
                 textarea.simulate('change');
             }
         });
-         
+
         if (mode) {
             editor.getSession().setMode(mode.mode);
         }
 
         editor.setOptions({
             enableBasicAutocompletion: true,
-            newLineMode: "unix"
+            newLineMode: "unix",
         });
-        
+
         textarea.hide();
-        
+
         /* Because chrome doesn't generate mutation events when a user resizes
-         * a resizable div, we have to poll the wrapper div size on mouse 
+         * a resizable div, we have to poll the wrapper div size on mouse
          * motion events. Furthermore, we need to observe the mouse events
          * on the parent window rather than the resizable div, as Chrome doesn't
          * generate the events on the child (unlike Firefox).
@@ -145,32 +145,32 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
             var h = wrapper_node.get('offsetHeight'),
                 w = wrapper_node.get('offsetWidth');
             if (h != hLast || w != wLast) {
-                do_resize(h, w);  
+                do_resize(h, w);
             }
         });
-        
+
         /* The following is how the above should be done, if Chrome weren't buggy
-        var observer = new MutationObserver(function(mutations) {
-            var h = wrapper_node.get('offsetHeight'),
-                w = wrapper_node.get('offsetWidth');
-            do_resize(h, w);   
-        });
-        observer.observe(wrapper_node.getDOMNode(),
-            { attributes: true, childList: false, characterData: false });
-        */
-       
+         var observer = new MutationObserver(function(mutations) {
+         var h = wrapper_node.get('offsetHeight'),
+         w = wrapper_node.get('offsetWidth');
+         do_resize(h, w);
+         });
+         observer.observe(wrapper_node.getDOMNode(),
+         { attributes: true, childList: false, characterData: false });
+         */
+
         return editor;
     }
-    
+
     // The main body of the init_ace function
     // ======================================
-    
+
     // Load the required ace modules
     if (! M.qtype_coderunner.modelist) {
         M.qtype_coderunner.modelist = ace.require('ace/ext/modelist');
         ace.require("ace/ext/language_tools");
     }
-    
+
     // Keep track of all active editors on this page (in module global)
     if (! M.qtype_coderunner.active_editors) {
         M.qtype_coderunner.active_editors = {};
@@ -178,7 +178,7 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
 
     textarea = Y.one('[id="' + field + '"]');
     if (textarea) {
-        mode =  find_mode(lang);   
+        mode =  find_mode(lang);
         if (M.qtype_coderunner.active_editors[field]) {
             if (mode) {  // If we already have an editor set up, reload code, change mode
                 session = M.qtype_coderunner.active_editors[field].getSession();
@@ -189,42 +189,7 @@ M.qtype_coderunner.init_ace = function (Y, field, lang) {
             M.qtype_coderunner.active_editors[field] = create_editor_element(textarea, mode);
         }
     }
-};
-
-M.qtype_coderunner.init_basic_yaml_ace = function (Y, field) {
-    var HANDLE_SIZE = 5,
-        MIN_WIDTH = 300,
-        MIN_HEIGHT = 100;
-
-    var textarea = Y.one('[id="' + field + '"]'),
-        h = parseInt(textarea.getComputedStyle("height")),
-        w = parseInt(textarea.getComputedStyle("width")),
-        wrapper_node = Y.Node.create('<div></div>'),
-        edit_node = Y.Node.create("<div></div>");
-
-    wrapper_node.setStyles({
-        resize: 'both',
-        overflow: 'hidden',
-        height: h,
-        width: w,
-        minWidth: MIN_WIDTH,  // GRRR YUI needs camelCase not hyphens
-        minHeight: MIN_HEIGHT
-    });
-
-
-    edit_node.setStyles({
-        resize: 'none', // Chrome wrongly inherits this
-        height: h - HANDLE_SIZE,
-        width: w - HANDLE_SIZE
-    });
-
-    textarea.insert(wrapper_node, "after");
-    wrapper_node.insert(edit_node, "replace");
-
-    var editor = ace.edit(edit_node.getDOMNode());
-    editor.setTheme("ace/theme/monokai");
-    editor.getSession().setMode("ace/mode/yaml");
-};
+}
 
 
 // Function to initialise all code-input text-areas in a page.
@@ -392,8 +357,8 @@ M.qtype_coderunner.initEditForm = function(Y) {
                         }
                         else {
                             alert("Error loading prototype: " + outcome.error);
-                            $error = "*** PROTOTYPE LOAD FAILURE. DON'T SAVE THIS! ***\n" + outcome.error + 
-                                    "\nCourseId: " + courseId + ", qtype: " + newType;
+                            $error = "*** PROTOTYPE LOAD FAILURE. DON'T SAVE THIS! ***\n" + outcome.error +
+                                "\nCourseId: " + courseId + ", qtype: " + newType;
                             template.set('value', $error);
                         }
 
@@ -419,33 +384,33 @@ M.qtype_coderunner.initEditForm = function(Y) {
     };
 
     customise.on('change', function(e) {
-       isCustomised = customise.get('checked');
-       if (isCustomised) {
-           // Customisation is being turned on.
-           setCustomisationVisibility(true);
-       } else { // Customisation being turned off
-           message = "If you save this question with 'Customise' " +
-               "unchecked, any customisation you've done will be lost.";
-           if (confirm(message + " Proceed?")) {
-                 setCustomisationVisibility(false);
-           } else {
-               customise.set('checked',true);
-           }
-       }
+        isCustomised = customise.get('checked');
+        if (isCustomised) {
+            // Customisation is being turned on.
+            setCustomisationVisibility(true);
+        } else { // Customisation being turned off
+            message = "If you save this question with 'Customise' " +
+                "unchecked, any customisation you've done will be lost.";
+            if (confirm(message + " Proceed?")) {
+                setCustomisationVisibility(false);
+            } else {
+                customise.set('checked',true);
+            }
+        }
     });
 
     template.on('change', function(e) {
-           // Per-test template has been changed. Check if combinator should
-           // be disabled.
-           var combinatornonblank = combinatortemplate.get('value').trim() !== '';
-           if (combinatornonblank
-                   && !alertIssued
-                   && enablecombinator.get('checked')
-                   && confirm("Per-test template changed - disable combinator? ['Cancel' leaves it enabled.]")
-              ) {
-               enablecombinator.set('checked', false);
-           }
-           alertIssued = true;
+        // Per-test template has been changed. Check if combinator should
+        // be disabled.
+        var combinatornonblank = combinatortemplate.get('value').trim() !== '';
+        if (combinatornonblank
+            && !alertIssued
+            && enablecombinator.get('checked')
+            && confirm("Per-test template changed - disable combinator? ['Cancel' leaves it enabled.]")
+        ) {
+            enablecombinator.set('checked', false);
+        }
+        alertIssued = true;
     });
 
 
@@ -459,4 +424,6 @@ M.qtype_coderunner.initEditForm = function(Y) {
             loadDefaultCustomisationFields(Y);
         }
     });
+
+    M.qtype_coderunner.init_ace(Y, 'id_metatag', 'yaml');
 };

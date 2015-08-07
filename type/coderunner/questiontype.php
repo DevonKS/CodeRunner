@@ -62,49 +62,6 @@ require_once($CFG->dirroot . '/question/type/coderunner/locallib.php');
  */
 class qtype_coderunner extends question_type {
 
-    public static function get_all_prototypes()
-    {
-        global $DB, $COURSE;
-        $rows = $DB->get_records_select(
-            'question_coderunner_options',
-            'prototypetype != 0');
-        $valid = array();
-        $coursecontext = context_course::instance($COURSE->id);
-        foreach ($rows as $row) {
-            if (self::is_available_prototype($row, $coursecontext)) {
-                $valid[] = $row;
-            }
-        }
-        return $valid;
-
-    }
-
-    public static function is_available_prototype($questionoptionsrow, $context)
-    {
-        global $DB;
-        static $activeCats = null;
-
-        if (!$question = $DB->get_record('question', array('id' => $questionoptionsrow->questionid))) {
-            throw new coderunner_exception("Missing question id = {$questionoptionsrow->questionid} in question table");
-        }
-
-        if (!$candidatecat = $DB->get_record('question_categories', array('id' => $question->category))) {
-            throw new coderunner_exception('Missing question category');
-        }
-
-        if ($activeCats === null) {
-            $allContexts = $context->get_parent_context_ids(true);
-            $activeCats = get_categories_for_contexts(implode(',', $allContexts));
-        }
-
-        foreach ($activeCats as $cat) {
-            if ($cat->id == $candidatecat->id) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Whether this question type can perform a frequency analysis of student
      * responses.
@@ -116,9 +73,63 @@ class qtype_coderunner extends question_type {
      * @return bool whether this report can analyse all the student reponses
      * for things like the quiz statistics report.
      */
-    public function can_analyse_responses()
-    {
+    public function can_analyse_responses() {
         return false;  // TODO Consider if this functionality should be enabled
+    }
+
+    /**
+     * If your question type has a table that extends the question table, and
+     * you want the base class to automatically save, backup and restore the extra fields,
+     * override this method to return an array where the first element is the table name,
+     * and the subsequent entries are the column names (apart from id and questionid).
+     *
+     * @return mixed array as above, or null to tell the base class to do nothing.
+     */
+    public function extra_question_fields() {
+        return array('question_coderunner_options',
+            'coderunnertype',
+            'prototypetype',
+            'allornothing',
+            'penaltyregime',
+            'showsource',
+            'answerboxlines',
+            'answerboxcolumns',
+            'useace',
+            'resultcolumns',
+            'answer',
+            'combinatortemplate',
+            'testsplitterre',
+            'enablecombinator',
+            'pertesttemplate',
+            'language',
+            'acelang',
+            'sandbox',
+            'grader',
+            'cputimelimitsecs',
+            'memlimitmb',
+            'sandboxparams',
+            'templateparams'
+        );
+    }
+
+    /** A list of the extra question fields that are NOT inheritable from
+     *  the prototype and so are not hidden in the usual authoring interface
+     *  as 'customise' fields.
+     * @return array of strings
+     */
+    public static function noninherited_fields() {
+        return array(
+            'coderunnertype',
+            'prototypetype',
+            'allornothing',
+            'penaltyregime',
+            'showsource',
+            'answerboxlines',
+            'answerboxcolumns',
+            'useace',
+            'answer',
+            'templateparams'
+        );
     }
 
     /**
@@ -127,10 +138,10 @@ class qtype_coderunner extends question_type {
      * [Don't really need this as we're returning the default value, but I
      * prefer to be explicit.]
      */
-    public function questionid_column_name()
-    {
+    public function questionid_column_name() {
         return 'questionid';
     }
+
 
     /**
      * Abstract function implemented by each question type. It runs all the code
@@ -148,13 +159,57 @@ class qtype_coderunner extends question_type {
 
 
     // Function to copy testcases from form fields into question->testcases
+    private function copy_testcases_from_form(&$question) {
 
-    public function save_question($question, $form)
-    {
+        function test_case_order_cmp($tc1, $tc2) {
+            if ($tc1->ordering === $tc2->ordering) {
+                return 0;
+            } else {
+                return $tc1->ordering < $tc2->ordering ? -1 : 1;
+            }
+        }
+
+        $testcases = array();
+        $numtests = count($question->testcode);
+        assert(count($question->expected) == $numtests);
+        for($i = 0; $i < $numtests; $i++) {
+            $input = $this->filter_crs($question->testcode[$i]);
+            $stdin = $this->filter_crs($question->stdin[$i]);
+            $expected = $this->filter_crs($question->expected[$i]);
+            $extra = $this->filter_crs($question->extra[$i]);
+            if ($input === '' && $stdin === '' && $expected === '' && $extra === '') {
+                continue;
+            }
+            $testcase = new stdClass;
+            $testcase->questionid = isset($question->id) ? $question->id : 0;
+            $testcase->testcode = $input;
+            $testcase->stdin = $stdin;
+            $testcase->expected = $expected;
+            $testcase->extra = $extra;
+            $testcase->useasexample = isset($question->useasexample[$i]);
+            $testcase->display = $question->display[$i];
+            $testcase->hiderestiffail = isset($question->hiderestiffail[$i]);
+            $testcase->mark = trim($question->mark[$i]) == '' ? 1.0 : floatval($question->mark[$i]);
+            $testcase->ordering = intval($question->ordering[$i]);
+            $testcases[] = $testcase;
+        }
+
+        usort($testcases, 'test_case_order_cmp');  // Sort by ordering field
+
+        $question->testcases = $testcases;  // Can't call setTestcases as question is a stdClass :-(
+    }
+
+
+    // Override save_question to record in $form if this is a new question or
+    // not. Needed by save_question_options when saving prototypes.
+    // Note that the $form parameter to save_question is passed through
+    // to save_question_options as the $question parameter.
+    public function save_question($question, $form) {
         $form->isnew = empty($question->id);
 
         $metatag = explode(PHP_EOL, $form->metatag);
         $metatags = array();
+
         foreach ($metatag as $tag) {
             $metatags[] = "meta;Base64;" . base64_encode($tag);
         }
@@ -165,14 +220,10 @@ class qtype_coderunner extends question_type {
         return parent::save_question($question, $form);
     }
 
+    // This override saves all the extra question data, including
+    // the set of testcases and any datafiles to the database.
 
-    // Override save_question to record in $form if this is a new question or
-    // not. Needed by save_question_options when saving prototypes.
-    // Note that the $form parameter to save_question is passed through
-    // to save_question_options as the $question parameter.
-
-    public function save_question_options($question)
-    {
+    public function save_question_options($question) {
         global $DB, $USER;
 
         assert(isset($question->coderunnertype));
@@ -181,8 +232,7 @@ class qtype_coderunner extends question_type {
         $customised = isset($question->customise) && $question->customise;
         $isprototype = $question->prototypetype != 0;
         if ($customised && $question->prototypetype == 2 &&
-            $question->coderunnertype != $question->typename
-        ) {
+            $question->coderunnertype != $question->typename) {
             // Saving a new user-defined prototype.
             // Copy new type name into coderunnertype
             $question->coderunnertype = $question->typename;
@@ -233,8 +283,7 @@ class qtype_coderunner extends question_type {
         }
 
         if (!$oldtestcases = $DB->get_records($testcasetable,
-            array('questionid' => $question->id), 'id ASC')
-        ) {
+            array('questionid' => $question->id), 'id ASC')) {
             $oldtestcases = array();
         }
 
@@ -261,7 +310,7 @@ class qtype_coderunner extends question_type {
                 array('prototypetype' => 0,
                     'coderunnertype' => $typename)
             );
-            foreach ($children as $child) {
+            foreach($children as $child) {
                 question_bank::notify_question_edited($child->questionid);
             }
         }
@@ -269,16 +318,16 @@ class qtype_coderunner extends question_type {
 
         // Lastly, save any datafiles
 
-        if ($USER->id && isset($question->datafiles)) {
+        if ($USER->id && isset($question->datafiles))  {
             //  The id check is a hack to deal with phpunit initialisation, when no user exists
             file_save_draft_area_files($question->datafiles, $question->context->id,
-                'qtype_coderunner', 'datafile', (int)$question->id, $this->fileoptions);
+                'qtype_coderunner', 'datafile', (int) $question->id, $this->fileoptions);
         }
 
         return true;
     }
-    
-    
+
+
     /**
      * Move all the files belonging to this question from one context to another.
      * Override superclass implementation to handle the extra data files
@@ -291,46 +340,7 @@ class qtype_coderunner extends question_type {
         parent::move_files($questionid, $oldcontextid, $newcontextid);
         $fs = get_file_storage();
         $fs->move_area_files_to_new_context($oldcontextid,
-                $newcontextid, 'qtype_coderunner', 'datafile', $questionid);
-    }
-
-    // This override saves all the extra question data, including
-    // the set of testcases and any datafiles to the database.
-
-    /**
-     * If your question type has a table that extends the question table, and
-     * you want the base class to automatically save, backup and restore the extra fields,
-     * override this method to return an array where the first element is the table name,
-     * and the subsequent entries are the column names (apart from id and questionid).
-     *
-     * @return mixed array as above, or null to tell the base class to do nothing.
-     */
-    public function extra_question_fields()
-    {
-        return array('question_coderunner_options',
-            'coderunnertype',
-            'prototypetype',
-            'allornothing',
-            'penaltyregime',
-            'showsource',
-            'answerboxlines',
-            'answerboxcolumns',
-            'useace',
-            'resultcolumns',
-            'answer',
-            'combinatortemplate',
-            'testsplitterre',
-            'enablecombinator',
-            'pertesttemplate',
-            'language',
-            'acelang',
-            'sandbox',
-            'grader',
-            'cputimelimitsecs',
-            'memlimitmb',
-            'sandboxparams',
-            'templateparams'
-        );
+            $newcontextid, 'qtype_coderunner', 'datafile', $questionid);
     }
 
     // Load the question options (all the question extension fields and
@@ -338,129 +348,7 @@ class qtype_coderunner extends question_type {
     // The various fields are initialised from the prototype, then overridden
     // by any non-null values in the specific question.
 
-    public static function get_prototype($coderunnertype, $context)
-    {
-        global $DB;
-        $rows = $DB->get_records_select(
-            'question_coderunner_options',
-            "coderunnertype = '$coderunnertype' and prototypetype != 0");
-
-        if (count($rows) == 0) {
-            throw new coderunner_exception("Failed to find prototype $coderunnertype");
-        }
-
-        $validProtos = array();
-        foreach ($rows as $row) {
-            if (self::is_available_prototype($row, $context)) {
-                $validProtos[] = $row;
-            }
-        }
-
-        if (count($validProtos) == 0) {
-            throw new coderunner_exception("Prototype $coderunnertype is unavailable " .
-                "in this context");
-        } else if (count($validProtos) != 1) {
-            throw new coderunner_exception("Multiple prototypes found for $coderunnertype");
-        }
-        return $validProtos[0];
-    }
-
-
-    // Get a list of all valid prototypes in the current
-    // course context.
-
-    /** A list of the extra question fields that are NOT inheritable from
-     *  the prototype and so are not hidden in the usual authoring interface
-     *  as 'customise' fields.
-     * @return array of strings
-     */
-    public static function noninherited_fields()
-    {
-        return array(
-            'coderunnertype',
-            'prototypetype',
-            'allornothing',
-            'penaltyregime',
-            'showsource',
-            'answerboxlines',
-            'answerboxcolumns',
-            'useace',
-            'answer',
-            'templateparams'
-        );
-    }
-
-
-    // Get the specified prototype question from the database.
-    // Returns the row from the question_coderunner_options table, not the
-    // question itself.
-    // To be valid, the named prototype (a question of the specified type
-    // and with prototypetype non zero) must be in a question category that's 
-    // available in the given current context. 
-
-    private function copy_testcases_from_form(&$question)
-    {
-
-        function test_case_order_cmp($tc1, $tc2)
-        {
-            if ($tc1->ordering === $tc2->ordering) {
-                return 0;
-            } else {
-                return $tc1->ordering < $tc2->ordering ? -1 : 1;
-            }
-        }
-
-        $testcases = array();
-        $numtests = count($question->testcode);
-        assert(count($question->expected) == $numtests);
-        for ($i = 0; $i < $numtests; $i++) {
-            $input = $this->filter_crs($question->testcode[$i]);
-            $stdin = $this->filter_crs($question->stdin[$i]);
-            $expected = $this->filter_crs($question->expected[$i]);
-            $extra = $this->filter_crs($question->extra[$i]);
-            if ($input === '' && $stdin === '' && $expected === '' && $extra === '') {
-                continue;
-            }
-            $testcase = new stdClass;
-            $testcase->questionid = isset($question->id) ? $question->id : 0;
-            $testcase->testcode = $input;
-            $testcase->stdin = $stdin;
-            $testcase->expected = $expected;
-            $testcase->extra = $extra;
-            $testcase->useasexample = isset($question->useasexample[$i]);
-            $testcase->display = $question->display[$i];
-            $testcase->hiderestiffail = isset($question->hiderestiffail[$i]);
-            $testcase->mark = trim($question->mark[$i]) == '' ? 1.0 : floatval($question->mark[$i]);
-            $testcase->ordering = intval($question->ordering[$i]);
-            $testcases[] = $testcase;
-        }
-
-        usort($testcases, 'test_case_order_cmp');  // Sort by ordering field
-
-        $question->testcases = $testcases;  // Can't call setTestcases as question is a stdClass :-(
-    }
-
-
-    // True iff the given row from the question_coderunner_options table
-    // is a valid prototype in the given context.
-
-    /** Utility func: remove all '\r' chars from $s and also trim trailing newlines */
-    private function filter_crs($s)
-    {
-        $s = str_replace("\r", "", $s);
-        while (substr($s, strlen($s) - 1, 1) == '\n') {
-            $s = substr($s, 0, strlen($s) - 1);
-        }
-        return $s;
-    }
-
-
-    // Returns the context of the given question's category. The question
-    // parameter might be a true question or might be a row from the
-    // question options table.
-
-    public function get_question_options($question)
-    {
+    public function get_question_options($question) {
         global $CFG, $DB, $OUTPUT;
         parent::get_question_options($question);
 
@@ -486,8 +374,7 @@ class qtype_coderunner extends question_type {
                     if (isset($question->options->$field) &&
                         $question->options->$field !== null &&
                         $question->options->$field !== '' &&
-                        $question->options->$field != $value
-                    ) {
+                        $question->options->$field != $value) {
                         $question->options->customise = True; // An inherited field has been changed
                     } else {
                         $question->options->$field = $value;
@@ -495,7 +382,7 @@ class qtype_coderunner extends question_type {
                 }
             }
 
-            if (!isset($question->options->sandbox)) {
+            if (!isset($question->options->sandbox))  {
                 $question->options->sandbox = null;
             }
 
@@ -510,11 +397,9 @@ class qtype_coderunner extends question_type {
 
         // Add in any testcases (expect none for built-in prototypes)
         if (!$question->options->testcases = $DB->get_records('question_coderunner_tests',
-            array('questionid' => $question->id), 'id ASC')
-        ) {
+            array('questionid' => $question->id), 'id ASC')) {
             if ($question->options->prototypetype == 0
-                && $question->options->grader !== 'qtype_coderunner_combinator_template_grader'
-            ) {
+                && $question->options->grader !== 'qtype_coderunner_combinator_template_grader') {
                 throw new coderunner_exception("Failed to load testcases for question id {$question->id}");
             } else {
                 // Question prototypes may not have testcases
@@ -525,17 +410,91 @@ class qtype_coderunner extends question_type {
         return true;
     }
 
-    // Initialise the question_definition object from the questiondata
-    // read from the database (probably a cached version of the question
-    // object from the database enhanced by a call to get_question_options).
-    // Only fields not explicitly listed in extra_question_fields (i.e. those
-    // fields not from the question_coderunner_options table) need handling here.
-    // All we do is flatten the question->options fields down into the
-    // question itself, which will be all those fields of question->options
-    // not already flattened down by the parent implementation.
 
-    public static function question_context($question)
-    {
+    // Get a list of all valid prototypes in the current
+    // course context.
+    public static function get_all_prototypes() {
+        global $DB, $COURSE;
+        $rows = $DB->get_records_select(
+            'question_coderunner_options',
+            'prototypetype != 0');
+        $valid = array();
+        $coursecontext = context_course::instance($COURSE->id);
+        foreach ($rows as $row) {
+            if (self::is_available_prototype($row, $coursecontext)) {
+                $valid[] = $row;
+            }
+        }
+        return $valid;
+
+    }
+
+
+    // Get the specified prototype question from the database.
+    // Returns the row from the question_coderunner_options table, not the
+    // question itself.
+    // To be valid, the named prototype (a question of the specified type
+    // and with prototypetype non zero) must be in a question category that's
+    // available in the given current context.
+    public static function get_prototype($coderunnertype, $context) {
+        global $DB;
+        $rows = $DB->get_records_select(
+            'question_coderunner_options',
+            "coderunnertype = '$coderunnertype' and prototypetype != 0");
+
+        if (count($rows) == 0) {
+            throw new coderunner_exception("Failed to find prototype $coderunnertype");
+        }
+
+        $validProtos = array();
+        foreach ($rows as $row) {
+            if (self::is_available_prototype($row, $context)) {
+                $validProtos[] = $row;
+            }
+        }
+
+        if (count($validProtos) == 0) {
+            throw new coderunner_exception("Prototype $coderunnertype is unavailable ".
+                "in this context");
+        } else if (count($validProtos) != 1) {
+            throw new coderunner_exception("Multiple prototypes found for $coderunnertype");
+        }
+        return $validProtos[0];
+    }
+
+
+    // True iff the given row from the question_coderunner_options table
+    // is a valid prototype in the given context.
+    public static function is_available_prototype($questionoptionsrow, $context) {
+        global $DB;
+        static $activeCats = null;
+
+        if (!$question = $DB->get_record('question', array('id' => $questionoptionsrow->questionid))) {
+            throw new coderunner_exception("Missing question id = {$questionoptionsrow->questionid} in question table");
+        }
+
+        if (!$candidatecat = $DB->get_record('question_categories', array('id' => $question->category))) {
+            throw new coderunner_exception('Missing question category');
+        }
+
+        if ($activeCats === null) {
+            $allContexts = $context->get_parent_context_ids(true);
+            $activeCats = get_categories_for_contexts(implode(',', $allContexts));
+        }
+
+        foreach ($activeCats as $cat) {
+            if ($cat->id == $candidatecat->id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    // Returns the context of the given question's category. The question
+    // parameter might be a true question or might be a row from the
+    // question options table.
+    public static function question_context($question) {
         global $DB;
 
         if (!isset($question->contextid)) {
@@ -550,15 +509,32 @@ class qtype_coderunner extends question_type {
         return context::instance_by_id($contextid);
     }
 
+    // Initialise the question_definition object from the questiondata
+    // read from the database (probably a cached version of the question
+    // object from the database enhanced by a call to get_question_options).
+    // Only fields not explicitly listed in extra_question_fields (i.e. those
+    // fields not from the question_coderunner_options table) need handling here.
+    // All we do is flatten the question->options fields down into the
+    // question itself, which will be all those fields of question->options
+    // not already flattened down by the parent implementation.
+
+    protected function initialise_question_instance(question_definition $question, $questiondata) {
+        parent::initialise_question_instance($question, $questiondata);
+        foreach ($questiondata->options as $field => $value) {
+            if (!isset($question->$field)) {
+                $question->$field = $value;
+            }
+        }
+    }
+
 
     // Override required here so we can check if this is a prototype
     // with children (in which case deletion is disallowed). If not,
     // deletion is allowed but must delete the testcases too.
-
     public function delete_question($questionid, $contextid) {
         global $DB;
 
-        
+
         // TODO: find a solution to the problem of deleting in-use
         // prototypes. The code below isn't isn't correct (it doesn't
         // check the context of the question) so the entire block has
@@ -588,7 +564,7 @@ class qtype_coderunner extends question_type {
         */
 
         $success = $DB->delete_records("question_coderunner_tests",
-                array('questionid' => $questionid));
+            array('questionid' => $questionid));
         return $success && parent::delete_question($questionid, $contextid);
     }
 
@@ -622,7 +598,7 @@ class qtype_coderunner extends question_type {
         array_shift($extraquestionfields);
         $qo = $format->import_headers($data);
         $qo->qtype = $questiontype;
-        
+
         $newdefaults = array(
             'allornothing' => 1,
             'answerboxlines' => 15,
@@ -651,11 +627,11 @@ class qtype_coderunner extends question_type {
         }
 
         $qo->isnew = true;
-        
+
         $qo->testcases = array();
-        
-        if (isset($data['#']['testcases'][0]['#']['testcase']) && 
-                is_array($data['#']['testcases'][0]['#']['testcase'])) {
+
+        if (isset($data['#']['testcases'][0]['#']['testcase']) &&
+            is_array($data['#']['testcases'][0]['#']['testcase'])) {
             $testcases = $data['#']['testcases'][0]['#']['testcase'];
             foreach ($testcases as $testcase) {
                 $tc = new stdClass;
@@ -691,7 +667,7 @@ class qtype_coderunner extends question_type {
         }
 
         $datafiles = $format->getpath($data,
-                array('#', 'testcases', 0, '#', 'file'), array());
+            array('#', 'testcases', 0, '#', 'file'), array());
         if (is_array($datafiles)) { // Seems like a non-array does occur in some versions of PHP :-/
             $qo->datafiles = $format->import_files_as_draft($datafiles);
         }
@@ -706,33 +682,11 @@ class qtype_coderunner extends question_type {
      * testcases.
      *
      */
-    
+
     // Exporting is complicated by inheritance from the prototype.
     // To deal with this we re-read the prototype and include in the
     // export only the coderunner extra fields that are not inherited or that
     // are not equal in value to the field from the prototype.
-
-    public static function legacy_field_name_map()
-    {
-        $oldfields = array(
-            'coderunnertype' => 'coderunner_type',
-            'prototypetype' => 'prototype_type',
-            'allornothing' => 'all_or_nothing',
-            'answerboxlines' => 'answerbox_lines',
-            'answerboxcolumns' => 'answerbox_columns',
-            'useace' => 'use_ace',
-            'penaltyregime' => 'penalty_regime',
-            'enablecombinator' => 'enable_combinator',
-            'resultcolumns' => 'result_columns',
-            'combinatortemplate' => 'combinator_template',
-            'testsplitterre' => 'test_splitter_re',
-            'pertesttemplate' => 'per_test_template',
-            'templateparams' => 'template_params',
-            'acelang' => 'ace_lang',
-            'sandboxparams' => 'sandbox_params',
-            'showsource' => 'show_source');
-        return $oldfields;
-    }
 
     function export_to_xml($question, qformat_xml $format, $extra=null) {
         global $COURSE;
@@ -754,8 +708,9 @@ class qtype_coderunner extends question_type {
             $noninheritedfields = $this->noninherited_fields();
             $extrafields = $this->extra_question_fields();
             foreach ($row as $field => $value) {
-                if (!in_array($field, $noninheritedFields) &&
-                        $question->options->$field === $value) {
+                if (in_array($field, $extrafields) &&
+                    !in_array($field, $noninheritedfields) &&
+                    $question->options->$field === $value) {
                     $questiontoexport->options->$field = null;
                 }
             }
@@ -781,27 +736,46 @@ class qtype_coderunner extends question_type {
         $fs = get_file_storage();
         $contextid = $question->contextid;
         $datafiles = $fs->get_area_files(
-                $contextid, 'qtype_coderunner', 'datafile', $question->id);
+            $contextid, 'qtype_coderunner', 'datafile', $question->id);
         $expout .= $format->write_files($datafiles);
 
         $expout .= "    </testcases>\n";
         return $expout;
     }
-    
-    
+
+
+    /** Utility func: remove all '\r' chars from $s and also trim trailing newlines */
+    private function filter_crs($s) {
+        $s = str_replace("\r", "", $s);
+        while (substr($s, strlen($s) - 1, 1) == '\n') {
+            $s = substr($s, 0, strlen($s) - 1);
+        }
+        return $s;
+    }
+
+
     // A map from question_options field names to their legacy versions
     // withn underscores. Only those field names changed between versions 2.3
-    // and 2.4 of CodeRunner appear here. 
-
-    protected function initialise_question_instance(question_definition $question, $questiondata)
-    {
-        parent::initialise_question_instance($question, $questiondata);
-        foreach ($questiondata->options as $field => $value) {
-            if (!isset($question->$field)) {
-                $question->$field = $value;
-            }
-        }
+    // and 2.4 of CodeRunner appear here.
+    public static function legacy_field_name_map() {
+        $oldfields = array(
+            'coderunnertype'   => 'coderunner_type',
+            'prototypetype'    => 'prototype_type',
+            'allornothing'     => 'all_or_nothing',
+            'answerboxlines'   => 'answerbox_lines',
+            'answerboxcolumns' => 'answerbox_columns',
+            'useace'           => 'use_ace',
+            'penaltyregime'    => 'penalty_regime',
+            'enablecombinator' => 'enable_combinator',
+            'resultcolumns'    => 'result_columns',
+            'combinatortemplate' => 'combinator_template',
+            'testsplitterre'   => 'test_splitter_re',
+            'pertesttemplate'  => 'per_test_template',
+            'templateparams'   => 'template_params',
+            'acelang'          => 'ace_lang',
+            'sandboxparams'    => 'sandbox_params',
+            'showsource'       => 'show_source');
+        return $oldfields;
     }
 
 }
-
