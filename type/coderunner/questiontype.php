@@ -277,6 +277,22 @@ class qtype_coderunner extends question_type {
 
         return true;
     }
+    
+    
+    /**
+     * Move all the files belonging to this question from one context to another.
+     * Override superclass implementation to handle the extra data files
+     * we have in CodeRunner questions.
+     * @param int $questionid the question being moved.
+     * @param int $oldcontextid the context it is moving from.
+     * @param int $newcontextid the context it is moving to.
+     */
+    public function move_files($questionid, $oldcontextid, $newcontextid) {
+        parent::move_files($questionid, $oldcontextid, $newcontextid);
+        $fs = get_file_storage();
+        $fs->move_area_files_to_new_context($oldcontextid,
+                $newcontextid, 'qtype_coderunner', 'datafile', $questionid);
+    }
 
     // This override saves all the extra question data, including
     // the set of testcases and any datafiles to the database.
@@ -734,8 +750,9 @@ class qtype_coderunner extends question_type {
 
         // Clear all inherited fields equal in value to the corresponding Prototype field
         // (but only if this is not a prototype question itself)
-        if ($row->prototypetype == 0) {
-            $noninheritedFields = $this->noninherited_fields();
+        if ($questiontoexport->options->prototypetype == 0) {
+            $noninheritedfields = $this->noninherited_fields();
+            $extrafields = $this->extra_question_fields();
             foreach ($row as $field => $value) {
                 if (!in_array($field, $noninheritedFields) &&
                         $question->options->$field === $value) {
