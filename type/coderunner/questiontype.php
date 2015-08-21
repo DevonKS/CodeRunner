@@ -211,7 +211,9 @@ class qtype_coderunner extends question_type {
         $metatags = array();
 
         foreach ($metatag as $tag) {
-            $metatags[] = "meta;Base64;" . base64_encode($tag);
+            if ($tag !== '') {
+                $metatags[] = "meta;Base64;" . base64_encode($tag);
+            }
         }
 
         //add splits to tags
